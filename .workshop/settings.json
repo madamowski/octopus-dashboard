@@ -1,0 +1,8 @@
+{
+  "techStack": "STATIC_REACT_ONLY",
+  "enabledPlugins": {
+    "react-app-static@workshop-plugins": true,
+    "connectors-static@workshop-plugins": true,
+    "frontend-design@workshop-plugins": true
+  }
+}
