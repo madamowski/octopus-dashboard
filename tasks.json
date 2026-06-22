@@ -1,0 +1,42 @@
+[
+  {
+    "content": "[1/8] Set up types (src/types.ts) — OctopusConfig, DailyConsumption, CostAnalysisResponse, TariffRates",
+    "id": "1",
+    "status": "completed"
+  },
+  {
+    "content": "[2/8] Create src/lib/config.ts — localStorage helpers (loadConfig/saveConfig/clearConfig)",
+    "id": "2",
+    "status": "completed"
+  },
+  {
+    "content": "[3/8] Create src/lib/octopus.ts — all direct API functions (getConsumption, getCostAnalysis, getMeterInfo, etc.)",
+    "id": "3",
+    "status": "completed"
+  },
+  {
+    "content": "[4/8] Create src/components/SetupWizard.tsx — multi-step credentials Dialog",
+    "id": "4",
+    "status": "completed"
+  },
+  {
+    "content": "[5/8] Create src/components/MeterCard.tsx — electricity/gas area chart card",
+    "id": "5",
+    "status": "completed"
+  },
+  {
+    "content": "[6/8] Create src/components/TariffInfoCard.tsx — current tariff rates card",
+    "id": "6",
+    "status": "completed"
+  },
+  {
+    "content": "[7/8] Create src/components/WhatIfDailyChart.tsx — daily cost comparison line chart",
+    "id": "7",
+    "status": "completed"
+  },
+  {
+    "content": "[8/8] Update App.tsx, start.sh, verify build",
+    "id": "8",
+    "status": "completed"
+  }
+]
