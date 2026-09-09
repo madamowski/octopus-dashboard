@@ -160,7 +160,7 @@ export function SetupWizard({ open, onComplete, onClose, initialValues }: Props)
                       <p>
                         Go to{" "}
                         <a
-                          href="https://octopus.energy/dashboard/new/accounts/personal-details/"
+                          href="https://octopus.energy/dashboard/new/accounts/personal-details/api-access"
                           target="_blank"
                           rel="noreferrer"
                           className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
@@ -170,7 +170,16 @@ export function SetupWizard({ open, onComplete, onClose, initialValues }: Props)
                         → scroll to the <strong className="text-foreground">Developer settings</strong> card.
                       </p>
                       <p>
-                        Click <strong className="text-foreground">API access</strong> → <strong className="text-foreground">Regenerate my API key</strong> and copy the key shown.
+                        Click{" "}
+                        <a
+                          href="https://octopus.energy/dashboard/new/accounts/personal-details/api-access"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
+                        >
+                          API access
+                        </a>{" "}
+                        → <strong className="text-foreground">Regenerate my API key</strong> and copy the key shown.
                       </p>
                     </div>
                     <FormMessage />
@@ -181,18 +190,6 @@ export function SetupWizard({ open, onComplete, onClose, initialValues }: Props)
 
             {step === 2 && (
               <>
-                <p className="text-xs text-muted-foreground leading-relaxed -mt-1">
-                  Both values are on your{" "}
-                  <a
-                    href="https://octopus.energy/dashboard/new/accounts/personal-details/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
-                  >
-                    Personal details
-                  </a>{" "}
-                  page under the <strong className="text-foreground">Electricity</strong> meter section.
-                </p>
                 <FormField
                   control={form.control}
                   name="elMpan"
@@ -228,23 +225,23 @@ export function SetupWizard({ open, onComplete, onClose, initialValues }: Props)
                     </FormItem>
                   )}
                 />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Both values are on the same{" "}
+                  <a
+                    href="https://octopus.energy/dashboard/new/accounts/personal-details/api-access"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
+                  >
+                    API access
+                  </a>{" "}
+                  page from step 2 — scroll down to the <strong className="text-foreground">Examples</strong> section, under the <strong className="text-foreground">Electricity</strong> meter section.
+                </p>
               </>
             )}
 
             {step === 3 && (
               <>
-                <p className="text-xs text-muted-foreground leading-relaxed -mt-1">
-                  Both values are on your{" "}
-                  <a
-                    href="https://octopus.energy/dashboard/new/accounts/personal-details/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
-                  >
-                    Personal details
-                  </a>{" "}
-                  page under the <strong className="text-foreground">Gas</strong> meter section.
-                </p>
                 <FormField
                   control={form.control}
                   name="gasMprn"
@@ -279,6 +276,18 @@ export function SetupWizard({ open, onComplete, onClose, initialValues }: Props)
                     </FormItem>
                   )}
                 />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Both values are on the same{" "}
+                  <a
+                    href="https://octopus.energy/dashboard/new/accounts/personal-details/api-access"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
+                  >
+                    API access
+                  </a>{" "}
+                  page from step 2 — scroll down to the <strong className="text-foreground">Examples</strong> section, under the <strong className="text-foreground">Gas</strong> meter section.
+                </p>
               </>
             )}
 

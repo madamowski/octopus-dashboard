@@ -48,7 +48,7 @@ const steps = [
           rel="noreferrer"
           className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
         >
-          octopus.energy/dashboard
+          Dashboard
         </a>{" "}
         and sign in. Your <strong>account number</strong> (A-XXXXXXXX) is shown on this page.
       </>
@@ -58,15 +58,16 @@ const steps = [
     n: "02",
     text: (
       <>
-        Click your profile (top-right) → <strong>Personal details</strong>.{" "}
+        Click your profile (top-right) →{" "}
         <a
           href="https://octopus.energy/dashboard/new/accounts/personal-details/"
           target="_blank"
           rel="noreferrer"
-          className="underline underline-offset-2 text-pink-400 hover:text-pink-300 break-all"
+          className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
         >
-          octopus.energy/dashboard/new/accounts/personal-details/
+          Personal details
         </a>
+        .
       </>
     ),
   },
@@ -75,8 +76,15 @@ const steps = [
     text: (
       <>
         Scroll to the <strong>Developer settings</strong> card → click{" "}
-        <strong>API access</strong> → <strong>Regenerate my API key</strong>.
-        Copy the key.
+        <a
+          href="https://octopus.energy/dashboard/new/accounts/personal-details/api-access"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
+        >
+          API access
+        </a>{" "}
+        → <strong>Regenerate my API key</strong>. Copy the key.
       </>
     ),
   },
@@ -84,16 +92,16 @@ const steps = [
     n: "04",
     text: (
       <>
-        On the{" "}
+        On the same{" "}
         <a
-          href="https://octopus.energy/dashboard/new/accounts/personal-details/"
+          href="https://octopus.energy/dashboard/new/accounts/personal-details/api-access"
           target="_blank"
           rel="noreferrer"
           className="underline underline-offset-2 text-pink-400 hover:text-pink-300"
         >
-          Personal details
+          API access
         </a>{" "}
-        page, scroll down to find your <strong>Electricity</strong> and <strong>Gas</strong> meter sections — copy the MPAN, MPRN and serial numbers from there.
+        page, scroll down to the <strong>Examples</strong> section to find your <strong>Electricity</strong> and <strong>Gas</strong> meter sections — copy the MPAN, MPRN and serial numbers from there.
       </>
     ),
   },
