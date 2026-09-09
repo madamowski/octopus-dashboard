@@ -44,11 +44,21 @@ interface Props {
   initialValues?: OctopusConfig | null;
 }
 
+const EMPTY_CONFIG: OctopusConfig = {
+  accountNumber: "",
+  apiKey: "",
+  elMpan: "",
+  elSn: "",
+  gasMprn: "",
+  gasSn: "",
+};
+
 export function SetupWizard({ open, onComplete, onClose, initialValues }: Props) {
   const [step, setStep] = useState(0);
-  const [partial, setPartial] = useState<Partial<OctopusConfig>>(
-    initialValues ?? {}
-  );
+  const [partial, setPartial] = useState<OctopusConfig>({
+    ...EMPTY_CONFIG,
+    ...initialValues,
+  });
 
   const form = useForm({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,7 +71,7 @@ export function SetupWizard({ open, onComplete, onClose, initialValues }: Props)
     setPartial(merged);
     if (step < steps.length - 1) {
       setStep(step + 1);
-      form.reset({ ...merged });
+      form.reset(merged);
     } else {
       saveConfig(merged as OctopusConfig);
       onComplete(merged as OctopusConfig);
