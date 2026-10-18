@@ -146,6 +146,10 @@ export function demoYearOverYear(days: number): YoYPoint[] {
       elPrev: cost("electricity", prevDate, 1),
       gasCur: cost("gas", date, 0),
       gasPrev: cost("gas", prevDate, 1),
+      elCurSc: cur.el.standing_charge_p / 100,
+      elPrevSc: (cur.el.standing_charge_p * 1.09) / 100,
+      gasCurSc: cur.gas!.standing_charge_p / 100,
+      gasPrevSc: (cur.gas!.standing_charge_p * 1.09) / 100,
     });
   }
   return out;

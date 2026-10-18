@@ -13,6 +13,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarClock } from "lucide-react";
 import { getYearOverYearCost, getYearOverYearTemps, type YoYPoint, type TempPoint } from "@/lib/octopus";
@@ -62,6 +63,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
   const [error, setError] = useState<string | null>(null);
   const [temps, setTemps] = useState<TempPoint[] | null>(null);
   const [tempView, setTempView] = useState<"temp" | "hdd">("temp");
+  const [includeSc, setIncludeSc] = useState(false);
   const [fuel, setFuel] = useState<Fuel>("both");
   const [mode, setMode] = useState<Mode>("cumulative");
 
@@ -114,19 +116,21 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
       if (!p) continue;
       if (t.cur != null && p.gasCur != null) {
         acc.hddCur += Math.max(0, HDD_BASE - t.cur);
-        acc.gasCur += p.gasCur;
+        acc.gasCur += includeSc ? p.gasCur : Math.max(0, p.gasCur - p.gasCurSc);
       }
       if (t.prev != null && p.gasPrev != null) {
         acc.hddPrev += Math.max(0, HDD_BASE - t.prev);
-        acc.gasPrev += p.gasPrev;
+        acc.gasPrev += includeSc ? p.gasPrev : Math.max(0, p.gasPrev - p.gasPrevSc);
       }
     }
     if (acc.hddCur <= 0 || acc.hddPrev <= 0) return null;
     return { ...acc, perCur: acc.gasCur / acc.hddCur, perPrev: acc.gasPrev / acc.hddPrev };
-  }, [temps, points]);
+  }, [temps, points, includeSc]);
   const hasTemps = tempRows.some((r) => r.current != null && r.previous != null);
 
   const { rows, totalCur, totalPrev } = useMemo(() => {
+    // Cost for a day, optionally with the standing charge removed (only for days that have data).
+    const adj = (v: number | null, sc: number) => (v == null ? null : includeSc ? v : Math.max(0, v - sc));
     const pick = (el: number | null, gas: number | null) => {
       if (fuel === "electricity") return el;
       if (fuel === "gas") return gas;
@@ -135,8 +139,8 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
     let cc = 0;
     let cp = 0;
     const rows = points.map((p) => {
-      const cur = pick(p.elCur, p.gasCur);
-      const prev = pick(p.elPrev, p.gasPrev);
+      const cur = pick(adj(p.elCur, p.elCurSc), adj(p.gasCur, p.gasCurSc));
+      const prev = pick(adj(p.elPrev, p.elPrevSc), adj(p.gasPrev, p.gasPrevSc));
       cc += cur ?? 0;
       cp += prev ?? 0;
       const c = mode === "cumulative" ? cc : cur;
@@ -150,7 +154,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
       };
     });
     return { rows, totalCur: cc, totalPrev: cp };
-  }, [points, fuel, mode]);
+  }, [points, fuel, mode, includeSc]);
 
   const hasPrev = points.some((p) => p.elPrev != null || p.gasPrev != null);
   const delta = totalCur - totalPrev;
@@ -169,6 +173,14 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
             onChange={setFuel}
             options={[["both", "Total"], ["electricity", "Electricity"], ["gas", "Gas"]]}
           />
+          <label className="flex cursor-pointer select-none items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+            Standing charge
+            <Switch
+              checked={includeSc}
+              onCheckedChange={setIncludeSc}
+              className="h-4 w-7 data-[state=checked]:bg-pink-500 [&>span]:h-3 [&>span]:w-3 [&>span]:data-[state=checked]:translate-x-3"
+            />
+          </label>
           <Toggle<Mode>
             value={mode}
             onChange={setMode}
@@ -338,7 +350,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
               </>
             )}
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Red bars: spending more than last year; green: spending less. Costs use the actual tariff rates in effect on each day (inc. VAT, incl. standing charge).{hasTemps && " Weather bars: orange = warmer than last year, blue = colder (degree days: heating needed, so the reverse sign, same colours). Weather from Open-Meteo, located via your account postcode."}
+              Red bars: spending more than last year; green: spending less. Costs use the actual tariff rates in effect on each day (inc. VAT{includeSc ? ", incl. standing charge" : ", excl. standing charge"}).{hasTemps && " Weather bars: orange = warmer than last year, blue = colder (degree days: heating needed, so the reverse sign, same colours). Weather from Open-Meteo, located via your account postcode."}
             </p>
           </>
         )}
