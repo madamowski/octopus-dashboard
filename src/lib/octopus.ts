@@ -82,13 +82,118 @@ async function getCurrentTariffs(cfg: OctopusConfig) {
   };
 }
 
+// --------------- Meter readings (GraphQL) ---------------
+
+const GQL = "https://api.octopus.energy/v1/graphql/";
+
+async function gql<T>(query: string, variables: Record<string, unknown>, token?: string): Promise<T> {
+  const r = await fetch(GQL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: token } : {}) },
+    body: JSON.stringify({ query, variables }),
+  });
+  const body = await r.json();
+  if (body.errors?.length) console.warn("[graphql]", body.errors.map((e: { message: string }) => e.message));
+  if (body.errors?.length && !body.data) throw new Error(body.errors[0].message);
+  return body.data as T;
+}
+
+const localDay = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+
+/** Latest register reading per local day, keyed by YYYY-MM-DD. Never throws. */
+async function getMeterReadings(
+  cfg: OctopusConfig,
+  since: string
+): Promise<{ electricity: Record<string, number>; gas: Record<string, number> }> {
+  const empty = { electricity: {}, gas: {} };
+  try {
+    const auth = await gql<{ obtainKrakenToken: { token: string } }>(
+      `mutation($k:String!){ obtainKrakenToken(input:{APIKey:$k}){ token } }`,
+      { k: cfg.apiKey }
+    );
+    const token = auth.obtainKrakenToken.token;
+
+    type Meter = { id: string; serialNumber: string };
+    type Node = { readAt: string; registers: { value: string }[] };
+
+    async function fuelReadings(fuel: "electricity" | "gas", id: string, sn: string) {
+      const isEl = fuel === "electricity";
+      const mpQuery = `query($acc:String!){ account(accountNumber:$acc){ ${
+        isEl
+          ? "electricityAgreements{ meterPoint{ mpan meters{ id serialNumber } } }"
+          : "gasAgreements{ meterPoint{ mprn meters{ id serialNumber } } }"
+      } } }`;
+      type Agr = { meterPoint: { mpan?: string; mprn?: string; meters: Meter[] } | null };
+      const acct = await gql<{ account: Record<string, Agr[]> | null }>(mpQuery, { acc: cfg.accountNumber }, token);
+      const agreements = Object.values(acct.account ?? {})[0] ?? [];
+      const points = agreements.map((a) => a.meterPoint).filter(Boolean) as NonNullable<Agr["meterPoint"]>[];
+      const meters = (points.find((p) => (p.mpan ?? p.mprn) === id) ?? points[0])?.meters ?? [];
+      const meter = meters.find((m) => m.serialNumber === sn) ?? meters[meters.length - 1];
+      if (!meter) {
+        console.warn(`[readings] no ${fuel} meter found on account`);
+        return {};
+      }
+
+      const field = isEl ? "electricityMeterReadings" : "gasMeterReadings";
+      type Page = { pageInfo: { hasNextPage: boolean; endCursor: string | null }; edges: { node: Node }[] };
+      const edges: { node: Node }[] = [];
+      let after: string | null = null;
+      // Octopus rejects page sizes above 100 ("Invalid pagination parameters").
+      for (let i = 0; i < 20; i++) {
+        const data: Record<string, Page> = await gql(
+          `query($acc:String!,$m:String!,$from:DateTime,$after:String){ ${field}(accountNumber:$acc, meterId:$m, readFrom:$from, first:100, after:$after){ pageInfo{ hasNextPage endCursor } edges{ node{ readAt registers{ value } } } } }`,
+          { acc: cfg.accountNumber, m: meter.id, from: since, after },
+          token
+        );
+        const page = data[field];
+        edges.push(...(page?.edges ?? []));
+        if (!page?.pageInfo?.hasNextPage) break;
+        after = page.pageInfo.endCursor;
+      }
+      if (!edges.length) console.warn(`[readings] ${fuel}: query returned 0 readings`);
+      const latest: Record<string, { at: string; value: number }> = {};
+      for (const { node } of edges) {
+        const value = node.registers.reduce((s, r) => s + parseFloat(r.value), 0);
+        if (!Number.isFinite(value)) continue;
+        const day = localDay(node.readAt);
+        if (!latest[day] || node.readAt > latest[day].at) latest[day] = { at: node.readAt, value };
+      }
+      return Object.fromEntries(Object.entries(latest).map(([d, v]) => [d, v.value]));
+    }
+
+    const [electricity, gas] = await Promise.all([
+      fuelReadings("electricity", cfg.elMpan, cfg.elSn).catch((e) => { console.warn("[readings] electricity:", e); return {}; }),
+      fuelReadings("gas", cfg.gasMprn, cfg.gasSn).catch((e) => { console.warn("[readings] gas:", e); return {}; }),
+    ]);
+    return { electricity, gas };
+  } catch (e) {
+    console.warn("[readings] auth failed:", e);
+    return empty;
+  }
+}
+
 // --------------- Consumption ---------------
 
 export async function getConsumption(
   cfg: OctopusConfig,
   days = 30
 ): Promise<ConsumptionResponse> {
-  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const rangeStart = new Date(Date.now() - days * 86_400_000);
+  const rangeStartDay = rangeStart.toISOString().slice(0, 10);
+
+  // Octopus only stores sparse (roughly monthly) register readings, so look back
+  // far enough to find an anchor before the range and extend consumption to it.
+  const anchors = await getMeterReadings(
+    cfg,
+    new Date(rangeStart.getTime() - 62 * 86_400_000).toISOString()
+  );
+  const earliestNeeded = (map: Record<string, number>) => {
+    const before = Object.keys(map).filter((d) => d <= rangeStartDay).sort();
+    return before.length ? before[before.length - 1] : rangeStartDay;
+  };
+  const sinceDay = [earliestNeeded(anchors.electricity), earliestNeeded(anchors.gas), rangeStartDay].sort()[0];
+  const since = sinceDay === rangeStartDay ? rangeStart.toISOString() : `${sinceDay}T00:00:00Z`;
 
   async function fetchFuel(
     fuel: "electricity" | "gas",
@@ -131,7 +236,31 @@ export async function getConsumption(
     fetchFuel("gas", cfg.gasMprn, cfg.gasSn),
   ]);
 
-  return { electricity, gas };
+  /**
+   * Register reading at the start of each day. Exact when Octopus has a reading
+   * for that day; otherwise estimated from the nearest reading ± daily usage.
+   */
+  function withReadings(rows: DailyConsumption[], map: Record<string, number>): DailyConsumption[] {
+    const anchorDays = Object.keys(map).sort();
+    const sumBetween = (from: string, to: string) =>
+      rows.reduce((s, r) => (r.date >= from && r.date < to ? s + r.consumption_kwh : s), 0);
+
+    return rows
+      .filter((r) => r.date >= rangeStartDay)
+      .map((r) => {
+        if (map[r.date] != null) return { ...r, reading: map[r.date], readingEstimated: false };
+        const prev = [...anchorDays].reverse().find((d) => d < r.date);
+        if (prev) return { ...r, reading: map[prev] + sumBetween(prev, r.date), readingEstimated: true };
+        const next = anchorDays.find((d) => d > r.date);
+        if (next) return { ...r, reading: map[next] - sumBetween(r.date, next), readingEstimated: true };
+        return { ...r, reading: null };
+      });
+  }
+
+  return {
+    electricity: withReadings(electricity, anchors.electricity),
+    gas: withReadings(gas, anchors.gas),
+  };
 }
 
 // --------------- Tariff rate fetching ---------------
@@ -308,4 +437,146 @@ export async function getMeterInfo(cfg: OctopusConfig) {
   const region = await getGspRegion(cfg);
   const current = await getCurrentTariffs(cfg);
   return { gspRegion: region, currentTariff: current };
+}
+// --------------- Year-over-year actual cost ---------------
+
+export interface YoYPoint {
+  /** Current-period date (YYYY-MM-DD) */
+  date: string;
+  /** Same day one year earlier */
+  prevDate: string;
+  elCur: number | null;
+  elPrev: number | null;
+  gasCur: number | null;
+  gasPrev: number | null;
+}
+
+type RateSpan = { from: number; to: number; value: number };
+
+async function fetchPaged<T>(url: string, apiKey: string): Promise<T[]> {
+  const out: T[] = [];
+  let next: string | null = url;
+  while (next) {
+    const r: Response = await fetch(next, { headers: { Authorization: authHeader(apiKey) } });
+    if (!r.ok) break;
+    const body = await r.json();
+    out.push(...(body.results ?? []));
+    next = body.next ?? null;
+  }
+  return out;
+}
+
+const rateAt = (spans: RateSpan[], t: number) =>
+  spans.find((s) => t >= s.from && t < s.to)?.value ?? null;
+
+const shiftYear = (day: string, years: number) => {
+  const d = new Date(day + "T00:00:00Z");
+  d.setUTCFullYear(d.getUTCFullYear() + years);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * Actual daily cost (£, inc VAT) per fuel for [from, to] using the tariff(s) the
+ * account was on at the time. Days without consumption data are omitted.
+ */
+async function dailyActualCost(
+  cfg: OctopusConfig,
+  fuel: "electricity" | "gas",
+  fromDay: string,
+  toDay: string
+): Promise<Record<string, number>> {
+  const isEl = fuel === "electricity";
+  const id = isEl ? cfg.elMpan : cfg.gasMprn;
+  const sn = isEl ? cfg.elSn : cfg.gasSn;
+  const periodFrom = `${fromDay}T00:00:00Z`;
+  const periodTo = `${shiftYear(toDay, 0)}T23:59:59Z`;
+
+  const [usage, acctRes] = await Promise.all([
+    fetchPaged<{ consumption: number; interval_start: string }>(
+      `${BASE}/${isEl ? "electricity" : "gas"}-meter-points/${id}/meters/${sn}/consumption/?page_size=25000&order_by=period&period_from=${periodFrom}&period_to=${periodTo}`,
+      cfg.apiKey
+    ),
+    fetch(`${BASE}/accounts/${cfg.accountNumber}/`, { headers: { Authorization: authHeader(cfg.apiKey) } }),
+  ]);
+  if (!usage.length || !acctRes.ok) return {};
+  const acct = await acctRes.json();
+
+  type Agr = { tariff_code: string; valid_from: string; valid_to: string | null };
+  const agreements: Agr[] = [];
+  for (const p of acct.properties ?? []) {
+    for (const mp of p[isEl ? "electricity_meter_points" : "gas_meter_points"] ?? []) {
+      if ((mp.mpan ?? mp.mprn) === id) agreements.push(...(mp.agreements ?? []));
+    }
+  }
+
+  const unit: RateSpan[] = [];
+  const standing: RateSpan[] = [];
+  const t0 = new Date(periodFrom).getTime();
+  const t1 = new Date(periodTo).getTime();
+  await Promise.all(
+    agreements.map(async (a) => {
+      const aFrom = new Date(a.valid_from).getTime();
+      const aTo = a.valid_to ? new Date(a.valid_to).getTime() : Infinity;
+      if (aTo <= t0 || aFrom >= t1) return;
+      const from = new Date(Math.max(aFrom, t0)).toISOString();
+      const to = new Date(Math.min(aTo, t1)).toISOString();
+      const product = a.tariff_code.replace(/^[EG]-\dR-(.+)-[A-Z]$/, "$1");
+      const base = `${BASE}/products/${product}/${isEl ? "electricity" : "gas"}-tariffs/${a.tariff_code}`;
+      const q = `?page_size=1500&period_from=${from}&period_to=${to}`;
+      const [ur, sc] = await Promise.all([
+        fetchPaged<{ valid_from: string; valid_to: string | null; value_inc_vat: number }>(`${base}/standard-unit-rates/${q}`, cfg.apiKey),
+        fetchPaged<{ valid_from: string; valid_to: string | null; value_inc_vat: number }>(`${base}/standing-charges/${q}`, cfg.apiKey),
+      ]);
+      const clamp = (r: { valid_from: string; valid_to: string | null; value_inc_vat: number }): RateSpan => ({
+        from: Math.max(new Date(r.valid_from).getTime(), aFrom),
+        to: Math.min(r.valid_to ? new Date(r.valid_to).getTime() : Infinity, aTo),
+        value: r.value_inc_vat,
+      });
+      unit.push(...ur.map(clamp));
+      standing.push(...sc.map(clamp));
+    })
+  );
+
+  const pence: Record<string, number> = {};
+  for (const u of usage) {
+    const day = u.interval_start.slice(0, 10);
+    const rate = rateAt(unit, new Date(u.interval_start).getTime());
+    if (rate == null) continue;
+    pence[day] = (pence[day] ?? 0) + u.consumption * rate;
+  }
+  const out: Record<string, number> = {};
+  for (const [day, p] of Object.entries(pence)) {
+    const sc = rateAt(standing, new Date(day + "T12:00:00Z").getTime()) ?? 0;
+    out[day] = (p + sc) / 100;
+  }
+  return out;
+}
+
+export async function getYearOverYearCost(cfg: OctopusConfig, days: number): Promise<YoYPoint[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const prevFrom = shiftYear(from, -1);
+  const prevTo = shiftYear(today, -1);
+
+  const [elCur, elPrev, gasCur, gasPrev] = await Promise.all([
+    dailyActualCost(cfg, "electricity", from, today),
+    dailyActualCost(cfg, "electricity", prevFrom, prevTo),
+    dailyActualCost(cfg, "gas", from, today),
+    dailyActualCost(cfg, "gas", prevFrom, prevTo),
+  ]);
+
+  const points: YoYPoint[] = [];
+  for (let d = new Date(from + "T00:00:00Z"); d.toISOString().slice(0, 10) <= today; d.setUTCDate(d.getUTCDate() + 1)) {
+    const date = d.toISOString().slice(0, 10);
+    const prevDate = shiftYear(date, -1);
+    points.push({
+      date,
+      prevDate,
+      elCur: elCur[date] ?? null,
+      elPrev: elPrev[prevDate] ?? null,
+      gasCur: gasCur[date] ?? null,
+      gasPrev: gasPrev[prevDate] ?? null,
+    });
+  }
+  return points;
 }

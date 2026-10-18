@@ -10,6 +10,10 @@ export interface OctopusConfig {
 export interface DailyConsumption {
   date: string;
   consumption_kwh: number;
+  /** Cumulative register reading on that day (if Octopus has one). */
+  reading?: number | null;
+  /** True when `reading` is derived from the nearest real reading plus daily usage. */
+  readingEstimated?: boolean;
 }
 
 export interface TariffRates {

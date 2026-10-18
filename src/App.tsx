@@ -7,6 +7,7 @@ import { MeterCard } from "@/components/MeterCard";
 import { TariffInfoCard } from "@/components/TariffInfoCard";
 import { WhatIfTotalCard } from "@/components/WhatIfTotalCard";
 import { WhatIfDailyChart } from "@/components/WhatIfDailyChart";
+import { YearOverYearChart } from "@/components/YearOverYearChart";
 import { loadConfig } from "@/lib/config";
 import { getConsumption, getCostAnalysis } from "@/lib/octopus";
 import type {
@@ -135,6 +136,9 @@ function Dashboard({ config }: { config: OctopusConfig }) {
             loading={loading}
             error={error}
           />
+        </div>
+        <div className="md:col-span-2">
+          <YearOverYearChart config={config} days={toDays(days)} />
         </div>
       </div>
     </main>
