@@ -150,6 +150,8 @@ export function demoYearOverYear(days: number): YoYPoint[] {
       elPrevSc: (cur.el.standing_charge_p * 1.09) / 100,
       gasCurSc: cur.gas!.standing_charge_p / 100,
       gasPrevSc: (cur.gas!.standing_charge_p * 1.09) / 100,
+      gasCurKwh: kwh("gas", date, 0),
+      gasPrevKwh: kwh("gas", prevDate, 1),
     });
   }
   return out;

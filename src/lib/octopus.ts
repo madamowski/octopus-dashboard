@@ -469,6 +469,9 @@ export interface YoYPoint {
   elPrevSc: number;
   gasCurSc: number;
   gasPrevSc: number;
+  /** Gas consumption (kWh) */
+  gasCurKwh: number | null;
+  gasPrevKwh: number | null;
 }
 
 type RateSpan = { from: number; to: number; value: number };
@@ -504,7 +507,7 @@ async function dailyActualCost(
   fuel: "electricity" | "gas",
   fromDay: string,
   toDay: string
-): Promise<Record<string, { cost: number; sc: number }>> {
+): Promise<Record<string, { cost: number; sc: number; kwh: number }>> {
   const isEl = fuel === "electricity";
   const id = isEl ? cfg.elMpan : cfg.gasMprn;
   const sn = isEl ? cfg.elSn : cfg.gasSn;
@@ -558,16 +561,18 @@ async function dailyActualCost(
   );
 
   const pence: Record<string, number> = {};
+  const kwhByDay: Record<string, number> = {};
   for (const u of usage) {
     const day = u.interval_start.slice(0, 10);
+    kwhByDay[day] = (kwhByDay[day] ?? 0) + u.consumption;
     const rate = rateAt(unit, new Date(u.interval_start).getTime());
     if (rate == null) continue;
     pence[day] = (pence[day] ?? 0) + u.consumption * (isEl ? 1 : GAS_M3_TO_KWH) * rate;
   }
-  const out: Record<string, { cost: number; sc: number }> = {};
+  const out: Record<string, { cost: number; sc: number; kwh: number }> = {};
   for (const [day, p] of Object.entries(pence)) {
     const sc = rateAt(standing, new Date(day + "T12:00:00Z").getTime()) ?? 0;
-    out[day] = { cost: (p + sc) / 100, sc: sc / 100 };
+    out[day] = { cost: (p + sc) / 100, sc: sc / 100, kwh: kwhByDay[day] ?? 0 };
   }
   return out;
 }
@@ -601,6 +606,8 @@ export async function getYearOverYearCost(cfg: OctopusConfig, days: number): Pro
       elPrevSc: elPrev[prevDate]?.sc ?? 0,
       gasCurSc: gasCur[date]?.sc ?? 0,
       gasPrevSc: gasPrev[prevDate]?.sc ?? 0,
+      gasCurKwh: gasCur[date]?.kwh ?? null,
+      gasPrevKwh: gasPrev[prevDate]?.kwh ?? null,
     });
   }
   return points;

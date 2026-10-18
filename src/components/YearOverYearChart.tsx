@@ -64,6 +64,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
   const [temps, setTemps] = useState<TempPoint[] | null>(null);
   const [tempView, setTempView] = useState<"temp" | "hdd">("temp");
   const [includeSc, setIncludeSc] = useState(false);
+  const [metric, setMetric] = useState<"cost" | "eff">("cost");
   const [fuel, setFuel] = useState<Fuel>("both");
   const [mode, setMode] = useState<Mode>("cumulative");
 
@@ -156,6 +157,58 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
     return { rows, totalCur: cc, totalPrev: cp };
   }, [points, fuel, mode, includeSc]);
 
+  // Efficiency: gas kWh per heating degree day (cumulative ratio, or rolling 7-day ratio in daily mode).
+  const effRows = useMemo(() => {
+    const tByDate = new Map((temps ?? []).map((t) => [t.date, t]));
+    const hdd = (t: number | null) => (t == null ? null : Math.max(0, HDD_BASE - t));
+    const MIN_HDD = mode === "cumulative" ? 5 : 3;
+    const win: { kc: number; hc: number; kp: number; hp: number }[] = [];
+    let ckc = 0, chc = 0, ckp = 0, chp = 0;
+    return points.map((p) => {
+      const t = tByDate.get(p.date);
+      const hc = hdd(t?.cur ?? null);
+      const hp = hdd(t?.prev ?? null);
+      const okC = hc != null && p.gasCurKwh != null;
+      const okP = hp != null && p.gasPrevKwh != null;
+      const day = {
+        kc: okC ? p.gasCurKwh! : 0, hc: okC ? hc! : 0,
+        kp: okP ? p.gasPrevKwh! : 0, hp: okP ? hp! : 0,
+      };
+      ckc += day.kc; chc += day.hc; ckp += day.kp; chp += day.hp;
+      win.push(day);
+      if (win.length > 7) win.shift();
+      let c: number | null;
+      let v: number | null;
+      if (mode === "cumulative") {
+        c = chc >= MIN_HDD ? ckc / chc : null;
+        v = chp >= MIN_HDD ? ckp / chp : null;
+      } else {
+        const s7 = win.reduce((a, w) => ({ kc: a.kc + w.kc, hc: a.hc + w.hc, kp: a.kp + w.kp, hp: a.hp + w.hp }), { kc: 0, hc: 0, kp: 0, hp: 0 });
+        c = s7.hc >= MIN_HDD ? s7.kc / s7.hc : null;
+        v = s7.hp >= MIN_HDD ? s7.kp / s7.hp : null;
+      }
+      return {
+        date: p.date,
+        prevDate: p.prevDate,
+        current: c == null ? null : +c.toFixed(2),
+        previous: v == null ? null : +v.toFixed(2),
+        diff: c == null || v == null ? null : +(c - v).toFixed(2),
+      };
+    });
+  }, [points, temps, mode]);
+  const effTotals = useMemo(() => {
+    const last = [...effRows].reverse();
+    return mode === "cumulative"
+      ? { cur: last.find((r) => r.current != null)?.current ?? null, prev: last.find((r) => r.previous != null)?.previous ?? null }
+      : null;
+  }, [effRows, mode]);
+  const effAvailable = effRows.some((r) => r.current != null && r.previous != null);
+
+  const isEff = metric === "eff" && hasTemps;
+  const chartRows = isEff ? effRows : rows;
+  const U = isEff ? " kWh/HDD" : "";
+  const money = (n: number) => (isEff ? `${n.toFixed(2)}${U}` : `£${n.toFixed(2)}`);
+
   const hasPrev = points.some((p) => p.elPrev != null || p.gasPrev != null);
   const delta = totalCur - totalPrev;
   const year = new Date().getFullYear();
@@ -165,9 +218,18 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
         <div className="flex items-center gap-2">
           <CalendarClock className="h-4 w-4 text-teal-400" />
-          <CardTitle className="text-sm font-medium">Cost vs Same Period Last Year</CardTitle>
+          <CardTitle className="text-sm font-medium">{isEff ? "Gas Efficiency vs Same Period Last Year" : "Cost vs Same Period Last Year"}</CardTitle>
         </div>
         <div className="flex flex-wrap gap-2">
+          {hasTemps && (
+            <Toggle<"cost" | "eff">
+              value={metric}
+              onChange={setMetric}
+              options={[["cost", "Cost"], ["eff", "Efficiency"]]}
+            />
+          )}
+          {!isEff && (
+          <>
           <Toggle<Fuel>
             value={fuel}
             onChange={setFuel}
@@ -181,6 +243,8 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
               className="h-4 w-7 data-[state=checked]:bg-pink-500 [&>span]:h-3 [&>span]:w-3 [&>span]:data-[state=checked]:translate-x-3"
             />
           </label>
+          </>
+          )}
           <Toggle<Mode>
             value={mode}
             onChange={setMode}
@@ -199,7 +263,27 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
           </p>
         ) : (
           <>
-            <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+            {isEff ? (
+              <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                {effTotals && effTotals.cur != null && effTotals.prev != null ? (
+                  <>
+                    <span>{year}: <span className="font-mono text-foreground">{effTotals.cur.toFixed(2)} kWh/HDD</span></span>
+                    <span>{year - 1}: <span className="font-mono text-foreground">{effTotals.prev.toFixed(2)} kWh/HDD</span></span>
+                    <span>
+                      Change:{" "}
+                      <span className={`font-mono ${effTotals.cur > effTotals.prev ? "text-red-400" : "text-emerald-400"}`}>
+                        {effTotals.cur > effTotals.prev ? "+" : "−"}
+                        {Math.abs(((effTotals.cur - effTotals.prev) / effTotals.prev) * 100).toFixed(0)}%
+                        {effTotals.cur > effTotals.prev ? " more gas per degree day" : " less gas per degree day (more efficient)"}
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <span>Gas used per heating degree day (lower is better). Switch to Cumulative for the headline figure.</span>
+                )}
+              </div>
+            ) : (
+              <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
               <span>
                 {year}: <span className="font-mono text-foreground">£{totalCur.toFixed(2)}</span>
               </span>
@@ -214,9 +298,15 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
                 </span>
               </span>
             </div>
+            )}
+            {isEff && !effAvailable && (
+              <p className="mb-2 text-xs text-amber-400">
+                Not enough cold days in this period to compute gas per degree day. Try a longer period in heating season.
+              </p>
+            )}
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={rows} syncId="yoy" margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <ComposedChart data={chartRows} syncId="yoy" margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.3} />
                   <XAxis
                     dataKey="date"
@@ -225,7 +315,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
                     interval="preserveStartEnd"
                     minTickGap={50}
                   />
-                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} unit=" £" />
+                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} unit={isEff ? "" : " £"} />
                   <ReferenceLine y={0} stroke="hsl(var(--border))" />
                   <Tooltip
                     contentStyle={{
@@ -240,12 +330,12 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
                     }}
                     formatter={(value, name) => {
                       const n = Number(value);
-                      return [name === "Difference" && n > 0 ? `+£${n.toFixed(2)}` : `£${n.toFixed(2)}`, name];
+                      return [name === "Difference" && n > 0 ? `+${money(n)}` : money(n), name];
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "0.5rem" }} />
                   <Bar dataKey="diff" name="Difference" maxBarSize={14} opacity={0.55}>
-                    {rows.map((r) => (
+                    {chartRows.map((r) => (
                       <Cell key={r.date} fill={(r.diff ?? 0) > 0 ? "#f87171" : "#34d399"} />
                     ))}
                   </Bar>
@@ -350,7 +440,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
               </>
             )}
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Red bars: spending more than last year; green: spending less. Costs use the actual tariff rates in effect on each day (inc. VAT{includeSc ? ", incl. standing charge" : ", excl. standing charge"}).{hasTemps && " Weather bars: orange = warmer than last year, blue = colder (degree days: heating needed, so the reverse sign, same colours). Weather from Open-Meteo, located via your account postcode."}
+              {isEff ? "Red bars: more gas per degree day than last year; green: less (more efficient). Gas kWh ÷ heating degree days, daily mode uses a rolling 7-day window." : "Red bars: spending more than last year; green: spending less."} {!isEff && <>Costs use the actual tariff rates in effect on each day (inc. VAT{includeSc ? ", incl. standing charge" : ", excl. standing charge"}).</>}{hasTemps && " Weather bars: orange = warmer than last year, blue = colder (degree days: heating needed, so the reverse sign, same colours). Weather from Open-Meteo, located via your account postcode."}
             </p>
           </>
         )}
