@@ -204,6 +204,19 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
   }, [effRows, mode]);
   const effAvailable = effRows.some((r) => r.current != null && r.previous != null);
 
+  // Explain why efficiency lines may start part-way through the period.
+  const effNote = useMemo(() => {
+    if (!effRows.length) return null;
+    const first = (k: "current" | "previous") => effRows.findIndex((r) => r[k] != null);
+    const fc = first("current");
+    const fp = first("previous");
+    if (fc <= 0 && fp <= 0) return null;
+    const minHdd = mode === "cumulative" ? 5 : 3;
+    const noHeat = (temps ?? []).filter((t) => t.cur != null && t.cur >= HDD_BASE).length;
+    const start = (i: number) => (i < 0 ? "never reached" : `from ${fmtDate(effRows[i].date)}`);
+    return `Efficiency needs at least ${minHdd} heating degree days${mode === "cumulative" ? " accumulated" : " in the last 7 days"} before a figure is meaningful, so lines start late in mild weather. ${new Date().getFullYear()}: ${start(fc)}; ${new Date().getFullYear() - 1}: ${start(fp)}. ${noHeat} of ${temps?.length ?? 0} days this year needed no heating.`;
+  }, [effRows, temps, mode]);
+
   const isEff = metric === "eff" && hasTemps;
   const chartRows = isEff ? effRows : rows;
   const U = isEff ? " kWh/HDD" : "";
@@ -298,6 +311,9 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
                 </span>
               </span>
             </div>
+            )}
+            {isEff && effAvailable && effNote && (
+              <p className="mb-2 text-xs text-muted-foreground">{effNote}</p>
             )}
             {isEff && !effAvailable && (
               <p className="mb-2 text-xs text-amber-400">
