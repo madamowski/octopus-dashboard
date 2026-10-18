@@ -6,7 +6,7 @@ import type {
   Scenario,
   TariffRates,
 } from "@/types";
-import type { YoYPoint } from "@/lib/octopus";
+import type { YoYPoint, TempPoint } from "@/lib/octopus";
 
 /** Fake account used by the "Try the demo" button. No network calls, no personal data. */
 export const DEMO_CONFIG: OctopusConfig = {
@@ -58,7 +58,7 @@ function series(fuel: "electricity" | "gas", from: string, to: string, yearsBack
 }
 
 export function demoConsumption(days: number): ConsumptionResponse {
-  const to = iso(Date.now());
+  const to = iso(Date.now() - DAY); // today is never complete
   const from = iso(Date.now() - days * DAY);
   const base = { electricity: 18250.4, gas: 9120.7 };
 
@@ -147,6 +147,20 @@ export function demoYearOverYear(days: number): YoYPoint[] {
       gasCur: cost("gas", date, 0),
       gasPrev: cost("gas", prevDate, 1),
     });
+  }
+  return out;
+}
+
+export function demoYearOverYearTemps(days: number): TempPoint[] {
+  const temp = (date: string, back: number) =>
+    Math.round((3 + 15 * (1 - winter(date)) + (rnd("t" + date + back) - 0.5) * 6 + (back ? 0.8 : 0)) * 10) / 10;
+  const out: TempPoint[] = [];
+  for (let t = Date.now() - days * DAY; iso(t) <= iso(Date.now()); t += DAY) {
+    const date = iso(t);
+    const x = new Date(date + "T00:00:00Z");
+    x.setUTCFullYear(x.getUTCFullYear() - 1);
+    const prevDate = x.toISOString().slice(0, 10);
+    out.push({ date, prevDate, cur: temp(date, 0), prev: temp(prevDate, 1) });
   }
   return out;
 }

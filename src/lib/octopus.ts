@@ -8,7 +8,7 @@ import type {
   TariffRates,
 } from "@/types";
 
-import { demoConsumption, demoCostAnalysis, demoYearOverYear } from "@/lib/demo";
+import { demoConsumption, demoCostAnalysis, demoYearOverYear, demoYearOverYearTemps } from "@/lib/demo";
 
 const BASE = "https://api.octopus.energy/v1";
 
@@ -248,8 +248,10 @@ export async function getConsumption(
     const sumBetween = (from: string, to: string) =>
       rows.reduce((s, r) => (r.date >= from && r.date < to ? s + r.consumption_kwh : s), 0);
 
+    // Today's usage is always partial / not yet published, so never include it.
+    const today = new Date().toISOString().slice(0, 10);
     return rows
-      .filter((r) => r.date >= rangeStartDay)
+      .filter((r) => r.date >= rangeStartDay && r.date < today)
       .map((r) => {
         if (map[r.date] != null) return { ...r, reading: map[r.date], readingEstimated: false };
         const prev = [...anchorDays].reverse().find((d) => d < r.date);
@@ -582,6 +584,75 @@ export async function getYearOverYearCost(cfg: OctopusConfig, days: number): Pro
       gasCur: gasCur[date] ?? null,
       gasPrev: gasPrev[prevDate] ?? null,
     });
+  }
+  return points;
+}
+
+// --------------- Temperature (Open-Meteo, location from account postcode) ---------------
+
+export interface TempPoint {
+  date: string;
+  prevDate: string;
+  cur: number | null;
+  prev: number | null;
+}
+
+async function getLatLon(cfg: OctopusConfig): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const r = await fetch(`${BASE}/accounts/${cfg.accountNumber}/`, { headers: { Authorization: authHeader(cfg.apiKey) } });
+    if (!r.ok) return null;
+    const props = (await r.json()).properties ?? [];
+    const active = props.find((p: { moved_out_at: string | null }) => !p.moved_out_at) ?? props[0];
+    const postcode: string | undefined = active?.postcode;
+    if (!postcode) return null;
+    const g = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(postcode.replace(/\s+/g, ""))}`);
+    if (!g.ok) return null;
+    const { latitude, longitude } = (await g.json()).result ?? {};
+    return typeof latitude === "number" ? { lat: latitude, lon: longitude } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dailyMeanTemp(url: string): Promise<Record<string, number>> {
+  const r = await fetch(url);
+  if (!r.ok) return {};
+  const d = (await r.json()).daily;
+  const out: Record<string, number> = {};
+  (d?.time ?? []).forEach((t: string, i: number) => {
+    const v = d.temperature_2m_mean?.[i];
+    if (typeof v === "number") out[t] = v;
+  });
+  return out;
+}
+
+/** Mean daily temperature for the period and the same period last year. Null if location unavailable. */
+export async function getYearOverYearTemps(cfg: OctopusConfig, days: number): Promise<TempPoint[] | null> {
+  if (cfg.demo) return demoYearOverYearTemps(days);
+  const loc = await getLatLon(cfg);
+  if (!loc) return null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const prevFrom = shiftYear(from, -1);
+  const prevTo = shiftYear(today, -1);
+  const archiveEnd = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+  const q = `latitude=${loc.lat}&longitude=${loc.lon}&daily=temperature_2m_mean&timezone=Europe%2FLondon`;
+  const archive = (s: string, e: string) =>
+    dailyMeanTemp(`https://archive-api.open-meteo.com/v1/archive?${q}&start_date=${s}&end_date=${e}`);
+
+  const [curOld, curRecent, prev] = await Promise.all([
+    from <= archiveEnd ? archive(from, archiveEnd) : Promise.resolve({}),
+    dailyMeanTemp(`https://api.open-meteo.com/v1/forecast?${q}&past_days=8&forecast_days=1`),
+    archive(prevFrom, prevTo),
+  ]).catch(() => [{}, {}, {}] as Record<string, number>[]);
+  const cur = { ...curRecent, ...curOld };
+
+  const points: TempPoint[] = [];
+  for (let d = new Date(from + "T00:00:00Z"); d.toISOString().slice(0, 10) <= today; d.setUTCDate(d.getUTCDate() + 1)) {
+    const date = d.toISOString().slice(0, 10);
+    const prevDate = shiftYear(date, -1);
+    points.push({ date, prevDate, cur: cur[date] ?? null, prev: prev[prevDate] ?? null });
   }
   return points;
 }
