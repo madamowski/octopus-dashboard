@@ -8,6 +8,8 @@ import type {
   TariffRates,
 } from "@/types";
 
+import { demoConsumption, demoCostAnalysis, demoYearOverYear } from "@/lib/demo";
+
 const BASE = "https://api.octopus.energy/v1";
 
 function authHeader(apiKey: string) {
@@ -179,6 +181,7 @@ export async function getConsumption(
   cfg: OctopusConfig,
   days = 30
 ): Promise<ConsumptionResponse> {
+  if (cfg.demo) return demoConsumption(days);
   const rangeStart = new Date(Date.now() - days * 86_400_000);
   const rangeStartDay = rangeStart.toISOString().slice(0, 10);
 
@@ -334,6 +337,7 @@ export async function getCostAnalysis(
   cfg: OctopusConfig,
   days = 30
 ): Promise<CostAnalysisResponse> {
+  if (cfg.demo) return demoCostAnalysis(days);
   const { electricity: elData, gas: gasData } = await getConsumption(cfg, days);
   const region = await getGspRegion(cfg);
   const currentTariffs = await getCurrentTariffs(cfg);
@@ -553,6 +557,7 @@ async function dailyActualCost(
 }
 
 export async function getYearOverYearCost(cfg: OctopusConfig, days: number): Promise<YoYPoint[]> {
+  if (cfg.demo) return demoYearOverYear(days);
   const today = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const prevFrom = shiftYear(from, -1);

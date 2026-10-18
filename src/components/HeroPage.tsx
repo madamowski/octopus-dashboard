@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 
 interface Props {
   onConfigure: () => void;
+  onDemo: () => void;
 }
 
 const features = [
@@ -107,7 +108,7 @@ const steps = [
   },
 ];
 
-export function HeroPage({ onConfigure }: Props) {
+export function HeroPage({ onConfigure, onDemo }: Props) {
   return (
     <div className="mx-auto max-w-3xl px-6 py-12 sm:py-20">
       {/* Hero */}
@@ -124,13 +125,23 @@ export function HeroPage({ onConfigure }: Props) {
           A private, browser-side dashboard that reads your Octopus Energy
           consumption and shows what different tariffs would cost you.
         </p>
-        <Button
-          onClick={onConfigure}
-          size="lg"
-          className="bg-pink-500 hover:bg-pink-400 text-black font-semibold px-8"
-        >
-          Configure your account
-        </Button>
+        <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <Button
+            onClick={onConfigure}
+            size="lg"
+            className="bg-pink-500 hover:bg-pink-400 text-black font-semibold px-8"
+          >
+            Configure your account
+          </Button>
+          <Button
+            onClick={onDemo}
+            size="lg"
+            variant="outline"
+            className="border-pink-500/40 text-pink-400 hover:bg-pink-500/10 hover:text-pink-300 px-8"
+          >
+            Try the demo
+          </Button>
+        </div>
       </div>
 
       {/* Features */}

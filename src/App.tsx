@@ -8,6 +8,7 @@ import { TariffInfoCard } from "@/components/TariffInfoCard";
 import { WhatIfTotalCard } from "@/components/WhatIfTotalCard";
 import { WhatIfDailyChart } from "@/components/WhatIfDailyChart";
 import { YearOverYearChart } from "@/components/YearOverYearChart";
+import { DEMO_CONFIG } from "@/lib/demo";
 import { loadConfig } from "@/lib/config";
 import { getConsumption, getCostAnalysis } from "@/lib/octopus";
 import type {
@@ -199,15 +200,31 @@ export default function App() {
               </span>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setWizardOpen(true)}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Settings className="mr-1.5 h-3.5 w-3.5" />
-            Settings
-          </Button>
+          {config?.demo ? (
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-pink-500/30 bg-pink-500/10 px-2.5 py-0.5 text-xs text-pink-400">
+                Demo data
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfig(loadConfig())}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Exit demo
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setWizardOpen(true)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Settings className="mr-1.5 h-3.5 w-3.5" />
+              Settings
+            </Button>
+          )}
         </div>
       </header>
 
@@ -221,7 +238,7 @@ export default function App() {
       {!ready ? null : config ? (
         <Dashboard config={config} />
       ) : (
-        <HeroPage onConfigure={() => setWizardOpen(true)} />
+        <HeroPage onConfigure={() => setWizardOpen(true)} onDemo={() => setConfig(DEMO_CONFIG)} />
       )}
     </div>
   );

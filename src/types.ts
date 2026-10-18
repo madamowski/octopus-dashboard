@@ -5,6 +5,8 @@ export interface OctopusConfig {
   elSn: string;
   gasMprn: string;
   gasSn: string;
+  /** True for the built-in demo account (fake data, no API calls). */
+  demo?: boolean;
 }
 
 export interface DailyConsumption {
