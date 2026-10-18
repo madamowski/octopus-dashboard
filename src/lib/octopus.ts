@@ -11,6 +11,8 @@ import type {
 import { demoConsumption, demoCostAnalysis, demoYearOverYear, demoYearOverYearTemps } from "@/lib/demo";
 
 const BASE = "https://api.octopus.energy/v1";
+// m³ → kWh: volume × 1.02264 (correction) × 39.5 (calorific value) / 3.6
+const GAS_M3_TO_KWH = (1.02264 * 39.5) / 3.6;
 
 function authHeader(apiKey: string) {
   return "Basic " + btoa(`${apiKey}:`);
@@ -196,7 +198,9 @@ export async function getConsumption(
     return before.length ? before[before.length - 1] : rangeStartDay;
   };
   const sinceDay = [earliestNeeded(anchors.electricity), earliestNeeded(anchors.gas), rangeStartDay].sort()[0];
-  const since = sinceDay === rangeStartDay ? rangeStart.toISOString() : `${sinceDay}T00:00:00Z`;
+  // Start one day early: rows are trimmed to rangeStartDay below, and this covers the BST offset.
+  const dayBefore = new Date(new Date(rangeStartDay + "T00:00:00Z").getTime() - 86_400_000).toISOString().slice(0, 10);
+  const since = sinceDay === rangeStartDay ? `${dayBefore}T00:00:00Z` : `${sinceDay}T00:00:00Z`;
 
   async function fetchFuel(
     fuel: "electricity" | "gas",
@@ -264,7 +268,11 @@ export async function getConsumption(
 
   return {
     electricity: withReadings(electricity, anchors.electricity),
-    gas: withReadings(gas, anchors.gas),
+    // Gas API consumption is m³ (SMETS2); readings stay in m³, usage is converted to kWh.
+    gas: withReadings(gas, anchors.gas).map((r) => ({
+      ...r,
+      consumption_kwh: Math.round(r.consumption_kwh * GAS_M3_TO_KWH * 1000) / 1000,
+    })),
   };
 }
 
@@ -451,10 +459,16 @@ export interface YoYPoint {
   date: string;
   /** Same day one year earlier */
   prevDate: string;
+  /** Total daily cost incl. standing charge (£) */
   elCur: number | null;
   elPrev: number | null;
   gasCur: number | null;
   gasPrev: number | null;
+  /** Standing-charge part of the above (£) */
+  elCurSc: number;
+  elPrevSc: number;
+  gasCurSc: number;
+  gasPrevSc: number;
 }
 
 type RateSpan = { from: number; to: number; value: number };
@@ -490,7 +504,7 @@ async function dailyActualCost(
   fuel: "electricity" | "gas",
   fromDay: string,
   toDay: string
-): Promise<Record<string, number>> {
+): Promise<Record<string, { cost: number; sc: number }>> {
   const isEl = fuel === "electricity";
   const id = isEl ? cfg.elMpan : cfg.gasMprn;
   const sn = isEl ? cfg.elSn : cfg.gasSn;
@@ -548,12 +562,12 @@ async function dailyActualCost(
     const day = u.interval_start.slice(0, 10);
     const rate = rateAt(unit, new Date(u.interval_start).getTime());
     if (rate == null) continue;
-    pence[day] = (pence[day] ?? 0) + u.consumption * rate;
+    pence[day] = (pence[day] ?? 0) + u.consumption * (isEl ? 1 : GAS_M3_TO_KWH) * rate;
   }
-  const out: Record<string, number> = {};
+  const out: Record<string, { cost: number; sc: number }> = {};
   for (const [day, p] of Object.entries(pence)) {
     const sc = rateAt(standing, new Date(day + "T12:00:00Z").getTime()) ?? 0;
-    out[day] = (p + sc) / 100;
+    out[day] = { cost: (p + sc) / 100, sc: sc / 100 };
   }
   return out;
 }
@@ -579,10 +593,14 @@ export async function getYearOverYearCost(cfg: OctopusConfig, days: number): Pro
     points.push({
       date,
       prevDate,
-      elCur: elCur[date] ?? null,
-      elPrev: elPrev[prevDate] ?? null,
-      gasCur: gasCur[date] ?? null,
-      gasPrev: gasPrev[prevDate] ?? null,
+      elCur: elCur[date]?.cost ?? null,
+      elPrev: elPrev[prevDate]?.cost ?? null,
+      gasCur: gasCur[date]?.cost ?? null,
+      gasPrev: gasPrev[prevDate]?.cost ?? null,
+      elCurSc: elCur[date]?.sc ?? 0,
+      elPrevSc: elPrev[prevDate]?.sc ?? 0,
+      gasCurSc: gasCur[date]?.sc ?? 0,
+      gasPrevSc: gasPrev[prevDate]?.sc ?? 0,
     });
   }
   return points;
