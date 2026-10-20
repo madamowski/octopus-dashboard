@@ -179,6 +179,9 @@ async function getMeterReadings(
 
 // --------------- Consumption ---------------
 
+/** First day (YYYY-MM-DD) that is NOT trusted: yesterday (T-1) is often partial. Use `date < cutoff`. */
+const latestReliableCutoff = () => new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
 export async function getConsumption(
   cfg: OctopusConfig,
   days = 30
@@ -252,10 +255,10 @@ export async function getConsumption(
     const sumBetween = (from: string, to: string) =>
       rows.reduce((s, r) => (r.date >= from && r.date < to ? s + r.consumption_kwh : s), 0);
 
-    // Today's usage is always partial / not yet published, so never include it.
-    const today = new Date().toISOString().slice(0, 10);
+    // Today (T) is never published and Octopus's T-1 is routinely partial/incomplete, so skip both.
+    const cutoff = latestReliableCutoff();
     return rows
-      .filter((r) => r.date >= rangeStartDay && r.date < today)
+      .filter((r) => r.date >= rangeStartDay && r.date < cutoff)
       .map((r) => {
         if (map[r.date] != null) return { ...r, reading: map[r.date], readingEstimated: false };
         const prev = [...anchorDays].reverse().find((d) => d < r.date);
@@ -595,6 +598,18 @@ export async function getYearOverYearCost(cfg: OctopusConfig, days: number): Pro
   for (let d = new Date(from + "T00:00:00Z"); d.toISOString().slice(0, 10) <= today; d.setUTCDate(d.getUTCDate() + 1)) {
     const date = d.toISOString().slice(0, 10);
     const prevDate = shiftYear(date, -1);
+    if (date >= latestReliableCutoff()) {
+      // T-1 / today: incomplete data, leave current-year values empty
+      points.push({
+        date, prevDate,
+        elCur: null, elPrev: elPrev[prevDate]?.cost ?? null,
+        gasCur: null, gasPrev: gasPrev[prevDate]?.cost ?? null,
+        elCurSc: 0, elPrevSc: elPrev[prevDate]?.sc ?? 0,
+        gasCurSc: 0, gasPrevSc: gasPrev[prevDate]?.sc ?? 0,
+        gasCurKwh: null, gasPrevKwh: gasPrev[prevDate]?.kwh ?? null,
+      });
+      continue;
+    }
     points.push({
       date,
       prevDate,
