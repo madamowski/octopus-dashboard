@@ -158,7 +158,7 @@ export function MeterCard({ title, data, loading, error, fuel }: Props) {
             ) : (
             <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                   <defs>
                     <linearGradient id={`gradient-${fuel}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={color} stopOpacity={0.25} />
@@ -176,6 +176,7 @@ export function MeterCard({ title, data, loading, error, fuel }: Props) {
                   <YAxis
                     tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                     unit=" kWh"
+                    width={64}
                   />
                   <Tooltip
                     contentStyle={{

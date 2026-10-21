@@ -346,7 +346,12 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
                     }}
                     formatter={(value, name) => {
                       const n = Number(value);
-                      return [name === "Difference" && n > 0 ? `+${money(n)}` : money(n), name];
+                      if (name === "Difference") {
+                        const c = n > 0 ? "#f87171" : "#34d399";
+                        const txt = isEff ? `${n > 0 ? "+" : ""}${money(n)}` : `${n > 0 ? "+" : n < 0 ? "-" : ""}${money(Math.abs(n))}`;
+                        return [<span style={{ color: c }}>{txt}</span>, <span style={{ color: c }}>{name}</span>];
+                      }
+                      return [money(n), name];
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "0.5rem" }} />
@@ -440,7 +445,11 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
                         formatter={(value, name) => {
                           const n = Number(value);
                           const unit = tempView === "temp" ? "°C" : " HDD";
-                          return [name === "Difference" && n > 0 ? `+${n.toFixed(1)}${unit}` : `${n.toFixed(1)}${unit}`, name];
+                          if (name === "Difference") {
+                            const c = (n > 0) === (tempView === "temp") ? "#fb923c" : "#60a5fa";
+                            return [<span style={{ color: c }}>{`${n > 0 ? "+" : ""}${n.toFixed(1)}${unit}`}</span>, <span style={{ color: c }}>{name}</span>];
+                          }
+                          return [`${n.toFixed(1)}${unit}`, name];
                         }}
                       />
                       <Bar dataKey="diff" name="Difference" maxBarSize={14} opacity={0.55}>
