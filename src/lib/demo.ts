@@ -57,9 +57,9 @@ function series(fuel: "electricity" | "gas", from: string, to: string, yearsBack
   return out;
 }
 
-export function demoConsumption(days: number): ConsumptionResponse {
-  const to = iso(Date.now() - DAY); // today is never complete
-  const from = iso(Date.now() - days * DAY);
+export function demoConsumption(days: number, end = Date.now()): ConsumptionResponse {
+  const to = iso(Math.min(end, Date.now() - DAY)); // today is never complete
+  const from = iso(end - days * DAY);
   const base = { electricity: 18250.4, gas: 9120.7 };
 
   const withReadings = (fuel: "electricity" | "gas"): DailyConsumption[] => {
@@ -88,8 +88,8 @@ const TARIFFS: { key: string; name: string; el: TariffRates; gas: TariffRates | 
   { key: "GO-FIX-12M-26-06-13", name: "Octopus Go 12M Fixed", el: { unit_rate_p: 22.9, standing_charge_p: 47.5 }, gas: null },
 ];
 
-export function demoCostAnalysis(days: number): CostAnalysisResponse {
-  const { electricity, gas } = demoConsumption(days);
+export function demoCostAnalysis(days: number, end = Date.now()): CostAnalysisResponse {
+  const { electricity, gas } = demoConsumption(days, end);
   const dayCost = (t: (typeof TARIFFS)[number], date: string) => {
     const el = electricity.find((d) => d.date === date);
     const g = gas.find((d) => d.date === date);
@@ -122,7 +122,7 @@ export function demoCostAnalysis(days: number): CostAnalysisResponse {
   };
 }
 
-export function demoYearOverYear(days: number): YoYPoint[] {
+export function demoYearOverYear(days: number, end = Date.now()): YoYPoint[] {
   const cur = TARIFFS[0];
   const shift = (d: string) => {
     const x = new Date(d + "T00:00:00Z");
@@ -136,7 +136,7 @@ export function demoYearOverYear(days: number): YoYPoint[] {
     return ((kwh(fuel, date, back) * r.unit_rate_p + r.standing_charge_p) * f) / 100;
   };
   const out: YoYPoint[] = [];
-  for (let t = Date.now() - days * DAY; iso(t) <= iso(Date.now()); t += DAY) {
+  for (let t = end - days * DAY; iso(t) <= iso(end); t += DAY) {
     const date = iso(t);
     const prevDate = shift(date);
     out.push({
@@ -157,11 +157,11 @@ export function demoYearOverYear(days: number): YoYPoint[] {
   return out;
 }
 
-export function demoYearOverYearTemps(days: number): TempPoint[] {
+export function demoYearOverYearTemps(days: number, end = Date.now()): TempPoint[] {
   const temp = (date: string, back: number) =>
     Math.round((3 + 15 * (1 - winter(date)) + (rnd("t" + date + back) - 0.5) * 6 + (back ? 0.8 : 0)) * 10) / 10;
   const out: TempPoint[] = [];
-  for (let t = Date.now() - days * DAY; iso(t) <= iso(Date.now()); t += DAY) {
+  for (let t = end - days * DAY; iso(t) <= iso(end); t += DAY) {
     const date = iso(t);
     const x = new Date(date + "T00:00:00Z");
     x.setUTCFullYear(x.getUTCFullYear() - 1);

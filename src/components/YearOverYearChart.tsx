@@ -57,13 +57,13 @@ function Toggle<T extends string>({
   );
 }
 
-export function YearOverYearChart({ config, days }: { config: OctopusConfig; days: number }) {
+export function YearOverYearChart({ config, days, end }: { config: OctopusConfig; days: number; end?: number }) {
   const [points, setPoints] = useState<YoYPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [temps, setTemps] = useState<TempPoint[] | null>(null);
   const [tempView, setTempView] = useState<"temp" | "hdd">("temp");
-  const [includeSc, setIncludeSc] = useState(false);
+  const [includeSc, setIncludeSc] = useState(true);
   const [metric, setMetric] = useState<"cost" | "eff">("cost");
   const [fuel, setFuel] = useState<Fuel>("both");
   const [mode, setMode] = useState<Mode>("cumulative");
@@ -72,25 +72,25 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getYearOverYearCost(config, days)
+    getYearOverYearCost(config, days, end)
       .then((p) => !cancelled && setPoints(p.filter((x) => x.date < todayStr())))
       .catch((e) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [config, days]);
+  }, [config, days, end]);
 
   useEffect(() => {
     let cancelled = false;
     setTemps(null);
-    getYearOverYearTemps(config, days)
+    getYearOverYearTemps(config, days, end)
       .then((t) => !cancelled && setTemps(t && t.filter((x) => x.date < todayStr())))
       .catch(() => !cancelled && setTemps(null));
     return () => {
       cancelled = true;
     };
-  }, [config, days]);
+  }, [config, days, end]);
 
   const tempRows = useMemo(() => {
     const f = (v: number | null) => (v == null ? null : tempView === "hdd" ? Math.max(0, HDD_BASE - v) : v);
@@ -214,7 +214,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
     const minHdd = mode === "cumulative" ? 5 : 3;
     const noHeat = (temps ?? []).filter((t) => t.cur != null && t.cur >= HDD_BASE).length;
     const start = (i: number) => (i < 0 ? "never reached" : `from ${fmtDate(effRows[i].date)}`);
-    return `Efficiency needs at least ${minHdd} heating degree days${mode === "cumulative" ? " accumulated" : " in the last 7 days"} before a figure is meaningful, so lines start late in mild weather. ${new Date().getFullYear()}: ${start(fc)}; ${new Date().getFullYear() - 1}: ${start(fp)}. ${noHeat} of ${temps?.length ?? 0} days this year needed no heating.`;
+    return `Efficiency needs at least ${minHdd} heating degree days${mode === "cumulative" ? " accumulated" : " in the last 7 days"} before a figure is meaningful, so lines start late in mild weather. ${new Date(end ?? Date.now()).getFullYear()}: ${start(fc)}; ${new Date(end ?? Date.now()).getFullYear() - 1}: ${start(fp)}. ${noHeat} of ${temps?.length ?? 0} days this year needed no heating.`;
   }, [effRows, temps, mode]);
 
   const isEff = metric === "eff" && hasTemps;
@@ -224,7 +224,7 @@ export function YearOverYearChart({ config, days }: { config: OctopusConfig; day
 
   const hasPrev = points.some((p) => p.elPrev != null || p.gasPrev != null);
   const delta = totalCur - totalPrev;
-  const year = new Date().getFullYear();
+  const year = new Date(end ?? Date.now()).getFullYear();
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm md:col-span-2">

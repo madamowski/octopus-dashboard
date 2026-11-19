@@ -11,8 +11,9 @@ import type {
 import { demoConsumption, demoCostAnalysis, demoYearOverYear, demoYearOverYearTemps } from "@/lib/demo";
 
 const BASE = "https://api.octopus.energy/v1";
-// m³ → kWh: volume × 1.02264 (correction) × 39.5 (calorific value) / 3.6
-const GAS_M3_TO_KWH = (1.02264 * 39.5) / 3.6;
+// m³ → kWh: volume × 1.02264 (correction) × CV / 3.6
+// CV 38.8 MJ/m³ matches what Octopus bills (validated against the Octopus app, 16 Nov 2026).
+const GAS_M3_TO_KWH = (1.02264 * 38.8) / 3.6;
 
 function authHeader(apiKey: string) {
   return "Basic " + btoa(`${apiKey}:`);
@@ -184,11 +185,13 @@ const latestReliableCutoff = () => new Date(Date.now() - 86_400_000).toISOString
 
 export async function getConsumption(
   cfg: OctopusConfig,
-  days = 30
+  days = 30,
+  end = Date.now()
 ): Promise<ConsumptionResponse> {
-  if (cfg.demo) return demoConsumption(days);
-  const rangeStart = new Date(Date.now() - days * 86_400_000);
+  if (cfg.demo) return demoConsumption(days, end);
+  const rangeStart = new Date(end - days * 86_400_000);
   const rangeStartDay = rangeStart.toISOString().slice(0, 10);
+  const rangeEndDay = new Date(end).toISOString().slice(0, 10);
 
   // Octopus only stores sparse (roughly monthly) register readings, so look back
   // far enough to find an anchor before the range and extend consumption to it.
@@ -258,7 +261,7 @@ export async function getConsumption(
     // Today (T) is never published and Octopus's T-1 is routinely partial/incomplete, so skip both.
     const cutoff = latestReliableCutoff();
     return rows
-      .filter((r) => r.date >= rangeStartDay && r.date < cutoff)
+      .filter((r) => r.date >= rangeStartDay && r.date <= rangeEndDay && r.date < cutoff)
       .map((r) => {
         if (map[r.date] != null) return { ...r, reading: map[r.date], readingEstimated: false };
         const prev = [...anchorDays].reverse().find((d) => d < r.date);
@@ -348,10 +351,11 @@ async function fetchTariffRates(
 
 export async function getCostAnalysis(
   cfg: OctopusConfig,
-  days = 30
+  days = 30,
+  end = Date.now()
 ): Promise<CostAnalysisResponse> {
-  if (cfg.demo) return demoCostAnalysis(days);
-  const { electricity: elData, gas: gasData } = await getConsumption(cfg, days);
+  if (cfg.demo) return demoCostAnalysis(days, end);
+  const { electricity: elData, gas: gasData } = await getConsumption(cfg, days, end);
   const region = await getGspRegion(cfg);
   const currentTariffs = await getCurrentTariffs(cfg);
 
@@ -575,15 +579,15 @@ async function dailyActualCost(
   const out: Record<string, { cost: number; sc: number; kwh: number }> = {};
   for (const [day, p] of Object.entries(pence)) {
     const sc = rateAt(standing, new Date(day + "T12:00:00Z").getTime()) ?? 0;
-    out[day] = { cost: (p + sc) / 100, sc: sc / 100, kwh: kwhByDay[day] ?? 0 };
+    out[day] = { cost: (p + sc) / 100, sc: sc / 100, kwh: (kwhByDay[day] ?? 0) * (isEl ? 1 : GAS_M3_TO_KWH) };
   }
   return out;
 }
 
-export async function getYearOverYearCost(cfg: OctopusConfig, days: number): Promise<YoYPoint[]> {
-  if (cfg.demo) return demoYearOverYear(days);
-  const today = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+export async function getYearOverYearCost(cfg: OctopusConfig, days: number, end = Date.now()): Promise<YoYPoint[]> {
+  if (cfg.demo) return demoYearOverYear(days, end);
+  const today = new Date(end).toISOString().slice(0, 10);
+  const from = new Date(end - days * 86_400_000).toISOString().slice(0, 10);
   const prevFrom = shiftYear(from, -1);
   const prevTo = shiftYear(today, -1);
 
@@ -667,13 +671,13 @@ async function dailyMeanTemp(url: string): Promise<Record<string, number>> {
 }
 
 /** Mean daily temperature for the period and the same period last year. Null if location unavailable. */
-export async function getYearOverYearTemps(cfg: OctopusConfig, days: number): Promise<TempPoint[] | null> {
-  if (cfg.demo) return demoYearOverYearTemps(days);
+export async function getYearOverYearTemps(cfg: OctopusConfig, days: number, end = Date.now()): Promise<TempPoint[] | null> {
+  if (cfg.demo) return demoYearOverYearTemps(days, end);
   const loc = await getLatLon(cfg);
   if (!loc) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const today = new Date(end).toISOString().slice(0, 10);
+  const from = new Date(end - days * 86_400_000).toISOString().slice(0, 10);
   const prevFrom = shiftYear(from, -1);
   const prevTo = shiftYear(today, -1);
   const archiveEnd = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
@@ -682,7 +686,7 @@ export async function getYearOverYearTemps(cfg: OctopusConfig, days: number): Pr
     dailyMeanTemp(`https://archive-api.open-meteo.com/v1/archive?${q}&start_date=${s}&end_date=${e}`);
 
   const [curOld, curRecent, prev] = await Promise.all([
-    from <= archiveEnd ? archive(from, archiveEnd) : Promise.resolve({}),
+    from <= archiveEnd ? archive(from, today < archiveEnd ? today : archiveEnd) : Promise.resolve({}),
     dailyMeanTemp(`https://api.open-meteo.com/v1/forecast?${q}&past_days=8&forecast_days=1`),
     archive(prevFrom, prevTo),
   ]).catch(() => [{}, {}, {}] as Record<string, number>[]);
